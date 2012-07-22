@@ -30,5 +30,11 @@ using System.Runtime.InteropServices;
 // You can specify all the values or you can default the Build and Revision Numbers 
 // by using the '*' as shown below:
 // [assembly: AssemblyVersion("1.0.*")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+// 1.0.0.0 Original, Phil Covington, N8VB
+// 1.0.1.0 Features, George Byrkit, K9TRV
+//                  added Warren Pratt's (NR0V) agc code
+//                  added methods to OutbandSignalPowerSpectrum.cs to be able to set window type.
+//                  was 'Hamming', but 'Blackman-Harris' is much better.  Additional constructors
+//                  to be able to specify window type when constructing object.
+[assembly: AssemblyVersion("1.0.1.0")]
+[assembly: AssemblyFileVersion("1.0.1.0")]

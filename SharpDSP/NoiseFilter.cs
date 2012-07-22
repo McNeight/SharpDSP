@@ -37,11 +37,12 @@ namespace SharpDSP2._1
         private DSPBuffer d = null;
         private DSPState s = null;
 
-        private int lms_size;
+        private int lms_size;           // delay line and coefficients size.  Must be a power of 2...
         private int delay_line_index;
         private int mask;
         private float[] delay_line;
-        private float[] coefficients;            
+        private float[] coefficients;
+        private int[,] kTable;    
                 
         #endregion
         
@@ -52,10 +53,11 @@ namespace SharpDSP2._1
             this.d = dsp_buffer_obj;
             this.s = d.State;
 
-			this.lms_size = 128;    // 45
+            this.lms_size = 128;            // MUST  be a power of 2...
             this.mask = this.lms_size - 1;
-            this.delay_line = new float[128 /*this.lms_size */];
-            this.coefficients = new float[128];
+            this.delay_line = new float[this.lms_size];
+            this.coefficients = new float[this.lms_size];
+            this.kTable = new int[this.lms_size, this.lms_size];
             this.delay_line_index = 0;
 		}
 						
@@ -66,8 +68,20 @@ namespace SharpDSP2._1
         public void Process()
         {
             int blocksize = s.DSPBlockSize;
-            
-        	float scl1 = 1.0F - this.nfadaptation_rate * this.nfleakage;
+
+            // build kTable: a 2D array
+            for (int i = 0; i < this.lms_size; ++i)
+            {
+                // each i is a different delay_line_index value
+
+                // each j is a different 'j' value as in the loops below
+                for (int j = 0; j < this.lms_size; ++j)
+                {
+                    kTable[i, j] = (j + this.nfdelay + i) & this.mask;
+                }
+            }
+
+            float scl1 = 1.0F - this.nfadaptation_rate * this.nfleakage;
 
             for (int i = 0; i < blocksize; i++)
             {
@@ -77,13 +91,16 @@ namespace SharpDSP2._1
                 float sum_sq = 0.0F;
                 int k = 0;
 
+                // evaluate the sum_sq and accum values
                 for (int j = 0; j < this.nfadaptive_filter_size; j++)
                 {
-                    k = (j + this.nfdelay + this.delay_line_index) & this.mask;
+                    k = kTable[this.delay_line_index, j];
+
                     sum_sq += this.delay_line[k] * this.delay_line[k];
                     accum += this.coefficients[j] * this.delay_line[k];
                 }
 
+                // figure error term and related info (scaling factor and such)
                 float error = d.cpx[i].real - accum;
                 d.cpx[i].real = accum;  //this makes it a noise filter
                 d.cpx[i].imag = accum;
@@ -91,10 +108,12 @@ namespace SharpDSP2._1
                 float scl2 = this.nfadaptation_rate / (sum_sq + 1e-10F);
                 error *= scl2;
 
+                // recompute filter coefficients for next iteration of outer loop (on buffer...)
                 for (int j = 0; j < this.nfadaptive_filter_size; j++)
                 {
-                    k = (j + this.nfdelay + this.delay_line_index) & this.mask;
-                    this.coefficients[j] = this.coefficients[j] * scl1 + error * this.delay_line[k];
+                    k = kTable[this.delay_line_index, j];
+
+                    this.coefficients[j] = (this.coefficients[j] * scl1) + (error * this.delay_line[k]);
                 }
 
                 this.delay_line_index = (this.delay_line_index + this.mask) & this.mask;				

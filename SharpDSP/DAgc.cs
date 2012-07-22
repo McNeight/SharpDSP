@@ -264,7 +264,7 @@ namespace SharpDSP2._1
                 else
                 {
                     this.hangindex = 0;
-                    this.gain_now = this.one_m_attack * this.gain_now + this.attack * (float)Math.Max(tmp, this.gain_bottom);
+                    this.gain_now = (this.one_m_attack * this.gain_now) + (this.attack * (float)Math.Max(tmp, this.gain_bottom));
                 }
                                
                 this.d.cpx[i] = Scale(this.G[this.sndx], (float)Math.Min(this.slope * this.gain_now, this.gain_top));
@@ -325,7 +325,7 @@ namespace SharpDSP2._1
                     // if hangtime is over, use a fast decay rate specialy for hang...
                     if (this.hangindex++ > lochangtime)
                     {
-                        this.gain_now = this.one_m_hangdecay * this.gain_now + this.hangdecay * (float)Math.Min(this.gain_top, tmp);
+                        this.gain_now = (this.one_m_hangdecay * this.gain_now) + (this.hangdecay * (float)Math.Min(this.gain_top, tmp));
                     }
                     else
                     {
@@ -335,7 +335,7 @@ namespace SharpDSP2._1
                 else
                 {
                     this.hangindex = 0;
-                    this.gain_now = this.one_m_attack * this.gain_now + this.attack * (float)Math.Max(tmp, this.gain_bottom);
+                    this.gain_now = (this.one_m_attack * this.gain_now) + (this.attack * (float)Math.Max(tmp, this.gain_bottom));
                 }
 
                 // stuff added for the Harman AGC (fast gain and slow gain)
@@ -354,7 +354,7 @@ namespace SharpDSP2._1
                     // if fasthangtime (impulse hang time) is over, use a fast decay rate specialy for fast hang...
                     if (this.fasthang++ > locfasthangtime)
                     {
-                        this.fast_now = (float)Math.Min(this.one_m_fastdecay * this.fast_now + this.fast_decay * (float)Math.Min(this.gain_top, tmp), this.gain_top);
+                        this.fast_now = (float)Math.Min((this.one_m_fastdecay * this.fast_now) + (this.fast_decay * (float)Math.Min(this.gain_top, tmp)), this.gain_top);
                     }
                     else
                     {
@@ -373,7 +373,7 @@ namespace SharpDSP2._1
 
                 // now scale this datapoint (maths are different for Harman AGC...)
                 //this.d.cpx[i] = Scale(this.G[this.sndx], (float)Math.Min(this.slope * this.gain_now, this.gain_top));
-                this.d.cpx[i] = Scale(this.G[this.sndx], (float)Math.Min(this.fast_now, (float)Math.Min(this.slope * this.gain_now, this.gain_top)));
+                this.d.cpx[i] = Scale(this.G[this.sndx], (float)Math.Min(this.slope * (float)Math.Min(this.fast_now, this.gain_now), this.gain_top));
 
                 // adjust indices (they become one less, with wrap-around...)
                 this.indx = (this.indx + this.mask) & this.mask;

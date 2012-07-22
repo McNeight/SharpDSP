@@ -11,6 +11,7 @@
 This file is part of a program that implements a Software-Defined Radio.
 
 Copyright (C) 2007, 2008 Philip A Covington
+Copyright (C) 2011-2012 Warren Pratt NR0V (wcpAGC code)
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -29,26 +30,41 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 The author can be reached by email at
 
 p.covington@gmail.com
+ * 
+ * 
+ * Modified 4 January 2012 by George Byrkit to add a Mutex that protects
+ * the RX process from variable changes.  The RX process typically happens
+ * on a non-UI thread, where the variable changes occur on/from the UI thread.
+ * At this time, Warren Pratt's (NR0V) AGC method was added.  dagc.cs was replaced
+ * by wcpagc.cs.
 
 */
 using System;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System.Runtime.Serialization;
+using System.Threading;
 
 namespace SharpDSP2._1
 {	
 	[Serializable()]
 	public class Receiver
-	{			
+	{
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
+        private static extern void OutputDebugString(string text);
+
 		#region Private members
 
         internal DSPBuffer rxbuffer;        
         internal Filter filter;
 		internal Oscillator local_osc;
         internal Oscillator spec_local_osc;
-		internal DAgc agc;
-		internal BlockNoiseBlanker block_noise_blanker;
+#if false
+		// replaced by WCPAGC... 
+        internal DAgc agc;
+#endif
+        internal WCPAGC agc;
+        internal BlockNoiseBlanker block_noise_blanker;
         internal AveragingNoiseBlanker ave_noise_blanker;
 		internal Squelch squelch;
 		internal SignalMeter meter;
@@ -92,7 +108,8 @@ namespace SharpDSP2._1
             spec_local_osc.LocalOscillatorOn = true;
 
             // AGC
-            agc = new DAgc(ref rxbuffer);
+            //agc = new DAgc(ref rxbuffer);
+            agc = new WCPAGC(ref rxbuffer);
 
             // Block Noise Blanker
             block_noise_blanker = new BlockNoiseBlanker(ref rxbuffer);
@@ -131,78 +148,122 @@ namespace SharpDSP2._1
 
 		#endregion
 
-		#region Public members
-                						
-		unsafe public void DoDSPProcess(ref CPX[] inbuffer, ref CPX[] outbuffer)
+        #region Mutual Exclusion
+        // use ReceiverMutex.WaitOne() to claim, ReceiverMutex.ReleaseMutex() to release
+        private Mutex ReceiverMutex = new Mutex();
+        #endregion
+
+        #region Public members
+
+        /// <summary>
+        /// Now uses a Mutex object around all the processing, so that updates of
+        /// properties or fields do NOT occur while a block is being processed.
+        /// (George Byrkit, 4 January 2012)
+        /// </summary>
+        /// <param name="inbuffer">input buffer, a complex (CPX) array</param>
+        /// <param name="outbuffer">output buffer, a complex (CPX) array</param>
+        unsafe public void DoDSPProcess(ref CPX[] inbuffer, ref CPX[] outbuffer)
 		{
-            rxbuffer.Fill(ref inbuffer);
+            try
+            {
+                ReceiverMutex.WaitOne();
 
-			#region Do Noiseblankers
+                rxbuffer.Fill(ref inbuffer);
 
-            if (block_noise_blanker.BlockNBSwitchOn)
-			{
-				block_noise_blanker.Process();
-			}
+                #region Do Noiseblankers
 
-			if (ave_noise_blanker.AveNBSwitchOn)
-			{
-				ave_noise_blanker.Process();
-			}
+                if (block_noise_blanker.BlockNBSwitchOn)
+                {
+                    block_noise_blanker.Process();
+                }
 
-			#endregion
-			
-			#region Local Oscillator
-            
-			local_osc.Process();
+                if (ave_noise_blanker.AveNBSwitchOn)
+                {
+                    ave_noise_blanker.Process();
+                }
 
-			#endregion
+                #endregion
 
-			#region Power Spectrum before filter
+                #region Local Oscillator
 
-			power_spectrum.Process();   //djm uncommented
+                local_osc.Process();
 
-			#endregion
+                #endregion
 
-			#region Filter
-            
-			filter.Process();
+                #region Power Spectrum before filter
 
-			#endregion                     
+                power_spectrum.Process();   //djm uncommented
 
-            #region Metering after filter
+                #endregion
 
-            meter.Process();
+                #region Filter
 
-            #endregion
+                filter.Process();
 
-            #region Do AGC
+                #endregion
 
-            agc.Process();
+                #region Metering after filter
 
-            #endregion 
-                                  			
-			#region Squelch
+                meter.Process();
 
-			squelch.Process();
+                #endregion
 
-			#endregion
+                #region Do AGC
 
-            #region Do Demod
+#if false
+                // find max real and imaginary components for warren and log them (using OutputDebugString)
+                float maxReal = 0.0F;
+                float maxImaginary = 0.0F;
+                float temp;
+                for (int i = 0; i < rxbuffer.State.DSPBlockSize; ++i)
+                {
+                    temp = Math.Abs(rxbuffer.cpx[i].real);
+                    if (temp > maxReal)
+                    {
+                        maxReal = temp;
+                    }
+                    temp = Math.Abs(rxbuffer.cpx[i].imag);
+                    if (temp > maxImaginary)
+                    {
+                        maxImaginary = temp;
+                    }
+                }
+                string logMsg = String.Format("AGC Buffer max real = {0}, max imaginary = {1}\n", maxReal, maxImaginary);
+                OutputDebugString(logMsg);
+                //Console.Write(logMsg);
+#endif
 
-            pll.Process();            
+                agc.Process();
 
-            #endregion
-                                               
-            if (noise_filter.NoiseFilterSwitchOn) noise_filter.Process();
-            if (interference_filter.InterferenceFilterSwitchOn) interference_filter.Process();
+                #endregion
 
-            #region Do Output
+                #region Squelch
 
-            output_mode.Process();
-            
-			#endregion
+                squelch.Process();
 
-            outbuffer = (CPX[])rxbuffer.cpx.Clone();
+                #endregion
+
+                #region Do Demod
+
+                pll.Process();
+
+                #endregion
+
+                if (noise_filter.NoiseFilterSwitchOn) noise_filter.Process();
+                if (interference_filter.InterferenceFilterSwitchOn) interference_filter.Process();
+
+                #region Do Output
+
+                output_mode.Process();
+
+                #endregion
+
+                outbuffer = (CPX[])rxbuffer.cpx.Clone();
+            }
+            finally
+            {
+                ReceiverMutex.ReleaseMutex();
+            }
 		}    
 
 		public Receiver CloneSubRX(Receiver obj)
@@ -227,9 +288,10 @@ namespace SharpDSP2._1
         {
             get { return filter.FilterFrequencyLow; }
             set 
-            { 
-
+            {
+                ReceiverMutex.WaitOne();
                 filter.FilterFrequencyLow = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
         
@@ -238,15 +300,19 @@ namespace SharpDSP2._1
             get { return filter.FilterFrequencyHigh; }
             set
             {
+                ReceiverMutex.WaitOne();
                 filter.FilterFrequencyHigh = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
         public float LOFrequency
         {
             get { return local_osc.LOFrequency; }
-            set { 
+            set {
+                ReceiverMutex.WaitOne();
                 local_osc.LOFrequency = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 		public float SquelchMeterOffset
@@ -254,8 +320,10 @@ namespace SharpDSP2._1
             get { return squelch.SquelchMeterOffset; }
 			set
 			{
-				squelch.SquelchMeterOffset = value;				
-			}
+                ReceiverMutex.WaitOne();
+                squelch.SquelchMeterOffset = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		public float SquelchGainOffset
@@ -263,8 +331,10 @@ namespace SharpDSP2._1
             get { return squelch.SquelchGainOffset; }
 			set
 			{
-				squelch.SquelchGainOffset = value;
-			}
+                ReceiverMutex.WaitOne();
+                squelch.SquelchGainOffset = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		public float SquelchAttnOffset
@@ -272,8 +342,10 @@ namespace SharpDSP2._1
             get { return squelch.SquelchAttnOffset; }
 			set
 			{
-				squelch.SquelchAttnOffset = value;
-			}
+                ReceiverMutex.WaitOne();
+                squelch.SquelchAttnOffset = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		public bool SquelchOn
@@ -281,8 +353,10 @@ namespace SharpDSP2._1
             get { return squelch.SquelchOn; }
 			set
 			{
-				squelch.SquelchOn = value;
-			}
+                ReceiverMutex.WaitOne();
+                squelch.SquelchOn = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		public float SquelchThreshold
@@ -290,8 +364,10 @@ namespace SharpDSP2._1
             get { return squelch.SquelchThreshold; }
 			set
 			{
-				squelch.SquelchThreshold = value;
-			}
+                ReceiverMutex.WaitOne();
+                squelch.SquelchThreshold = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 				
         public bool BlockNBSwitchOn
@@ -299,7 +375,9 @@ namespace SharpDSP2._1
             get { return block_noise_blanker.BlockNBSwitchOn; }
             set
             {
+                ReceiverMutex.WaitOne();
                 block_noise_blanker.BlockNBSwitchOn = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
@@ -308,8 +386,10 @@ namespace SharpDSP2._1
             get { return block_noise_blanker.BlockNBThreshold; }
 			set
 			{
-				block_noise_blanker.BlockNBThreshold = value;
-			}
+                ReceiverMutex.WaitOne();
+                block_noise_blanker.BlockNBThreshold = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
         public bool AveNBSwitchOn
@@ -317,7 +397,9 @@ namespace SharpDSP2._1
             get { return ave_noise_blanker.AveNBSwitchOn; }
             set
             {
+                ReceiverMutex.WaitOne();
                 ave_noise_blanker.AveNBSwitchOn = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
@@ -326,97 +408,124 @@ namespace SharpDSP2._1
             get { return ave_noise_blanker.AveNBThreshold; }
 			set
 			{
-				ave_noise_blanker.AveNBThreshold = value;
-			}
-		}
-
-        public AGCMethod AGCMethod
-        {
-            get { return agc.AgcMethod; }
-            set
-            {
-                agc.AgcMethod = value;
+                ReceiverMutex.WaitOne();
+                ave_noise_blanker.AveNBThreshold = value;
+                ReceiverMutex.ReleaseMutex();
             }
-        }
+		}
 
         public AGCType_e AGCMode
 		{
-            get { return agc.AGCMode; }
+            get { return agc.getAgc_mode(); }
 			set
 			{
-				agc.AGCMode  = value;
-			}
+                ReceiverMutex.WaitOne();
+                agc.setAgc_mode(value);
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
-        public float AGCFixedGainDB
+        public double AGCFixedGain
         {
-            get { return agc.AGCFixedGainDB; }
+            get { return agc.FixedGain; }
             set
             {
-                agc.AGCFixedGainDB = value;
+                ReceiverMutex.WaitOne();
+                agc.FixedGain = value;
+                ReceiverMutex.ReleaseMutex();
+            }
+        }
+        public double AGCFixedGainDB
+        {
+            get { return agc.FixedGainDb; }
+            set
+            {
+                ReceiverMutex.WaitOne();
+                agc.FixedGainDb = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
-        public float AGCMaximumGainDB
+        public double AGCMaximumGain
         {
-            get { return agc.AGCMaximumGainDB; }
+            get { return agc.MaximumGain; }
             set
             {
-                agc.AGCMaximumGainDB = value;
+                ReceiverMutex.WaitOne();
+                agc.MaximumGain = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
-        public float AGCHangDecayTime
+        public double AGCMaximumGainDB
         {
-            get { return agc.AGCHangDecayTime; }
+            get { return agc.MaximumGainDb; }
             set
             {
-                agc.AGCHangDecayTime = value;
+                ReceiverMutex.WaitOne();
+                agc.MaximumGainDb = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
-        public float AGCHangTime
+        /// <summary>
+        /// used to get/set the dB level on the spectral (panadapter) display
+        /// </summary>
+        public double AGCThreshDB
+        {
+            get { return agc.getAGCThreshDb(filter.FilterFrequencyHigh, filter.FilterFrequencyLow, block_size); }
+            set
+            {
+                ReceiverMutex.WaitOne();
+                agc.setAGCThreshDb(filter.FilterFrequencyHigh, filter.FilterFrequencyLow, block_size, value);
+                ReceiverMutex.ReleaseMutex();
+            }
+        }
+
+        public double AGCHangTime
 		{
-            get { return agc.AGCHangTime; }
+            get { return agc.HangTime; }
 			set
 			{
-				agc.AGCHangTime = value;
-			}
+                ReceiverMutex.WaitOne();
+                agc.HangTime = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
-        public float AGCHangThres
+        public double AGCHangThreshold
         {
-            get { return agc.AGCHangThres; }
+            get { return agc.HangThresh; }
             set
             {
-                agc.AGCHangThres = value;
+                ReceiverMutex.WaitOne();
+                agc.HangThresh = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
-        public float AGCSlope
+        public double AGCHangLevel
         {
-            get { return agc.AGCSlope; }
+            get { return agc.HangLevelDb; }
             set
             {
-                agc.AGCSlope = value;
+                ReceiverMutex.WaitOne();
+                agc.HangLevelDb = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
-        public float AGCFastAttackTime
+        /// <summary>
+        /// Slope is in dB
+        /// </summary>
+        public double AGCSlope
         {
-            get { return agc.AGCFastAttackTime; }
+            get { return agc.VarGainDb; }
             set
             {
-                agc.AGCFastAttackTime = value;
-            }
-        }
-
-        public float AGCFastDecayTime
-        {
-            get { return agc.AGCFastDecayTime; }
-            set
-            {
-                agc.AGCFastDecayTime = value;
+                ReceiverMutex.WaitOne();
+                agc.VarGainDb = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
@@ -425,21 +534,34 @@ namespace SharpDSP2._1
             get { return agc.AGCStatus; }
         }
 
-        public float AGCAttackTime
-		{
-            get { return agc.AGCAttackTime; }
-			set
-			{
-				agc.AGCAttackTime = value;
-			}
-		}
-        
-        public float AGCDecayTime
+        public bool AGCHangEnable
         {
-            get { return agc.AGCDecayTime; }
+            get { return agc.AGCHangEnable; }
             set
             {
-                agc.AGCDecayTime = value;
+                agc.AGCHangEnable = value;
+            }
+        }
+
+        public double AGCAttackTime
+		{
+            get { return agc.TauAttack; }
+			set
+			{
+                ReceiverMutex.WaitOne();
+                agc.TauAttack = value;
+                ReceiverMutex.ReleaseMutex();
+            }
+		}
+
+        public double AGCDecayTime
+        {
+            get { return agc.TauDecay; }
+            set
+            {
+                ReceiverMutex.WaitOne();
+                agc.TauDecay = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
@@ -448,7 +570,9 @@ namespace SharpDSP2._1
             get { return interference_filter.InterferenceFilterSwitchOn; }
             set
             {
+                ReceiverMutex.WaitOne();
                 interference_filter.InterferenceFilterSwitchOn = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
@@ -457,8 +581,10 @@ namespace SharpDSP2._1
             get { return interference_filter.InterferenceFilterAdaptationRate; }
 			set
 			{
-				interference_filter.InterferenceFilterAdaptationRate = value;				
-			}
+                ReceiverMutex.WaitOne();
+                interference_filter.InterferenceFilterAdaptationRate = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		public int InterferenceFilterDelay
@@ -466,8 +592,10 @@ namespace SharpDSP2._1
             get { return interference_filter.InterferenceFilterDelay; }
 			set
 			{
-				interference_filter.InterferenceFilterDelay = value;				
-			}			
+                ReceiverMutex.WaitOne();
+                interference_filter.InterferenceFilterDelay = value;
+                ReceiverMutex.ReleaseMutex();
+            }			
 		}
 
 		public float InterferenceFilterLeakage
@@ -475,8 +603,10 @@ namespace SharpDSP2._1
             get { return interference_filter.InterferenceFilterLeakage; }
 			set
 			{
-				interference_filter.InterferenceFilterLeakage = value;				
-			}
+                ReceiverMutex.WaitOne();
+                interference_filter.InterferenceFilterLeakage = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 		
 		public int InterferenceFilterAdaptiveFilterSize
@@ -484,8 +614,10 @@ namespace SharpDSP2._1
             get { return interference_filter.InterferenceFilterAdaptiveFilterSize; }
 			set
 			{
+                ReceiverMutex.WaitOne();
                 interference_filter.InterferenceFilterAdaptiveFilterSize = value;
-			}
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
         public bool NoiseFilterSwitchOn
@@ -493,7 +625,9 @@ namespace SharpDSP2._1
             get { return noise_filter.NoiseFilterSwitchOn; }
             set
             {
+                ReceiverMutex.WaitOne();
                 noise_filter.NoiseFilterSwitchOn = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
@@ -502,8 +636,10 @@ namespace SharpDSP2._1
             get { return noise_filter.NoiseFilterDelay; }
 			set
 			{
-				noise_filter.NoiseFilterDelay = value;
-			}			
+                ReceiverMutex.WaitOne();
+                noise_filter.NoiseFilterDelay = value;
+                ReceiverMutex.ReleaseMutex();
+            }			
 		}
 
 		public float NoiseFilterLeakage
@@ -511,8 +647,10 @@ namespace SharpDSP2._1
             get { return noise_filter.NoiseFilterLeakage; }
 			set
 			{
-                noise_filter.NoiseFilterLeakage = value;				
-			}
+                ReceiverMutex.WaitOne();
+                noise_filter.NoiseFilterLeakage = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 		
 		public int NoiseFilterAdaptiveFilterSize
@@ -520,8 +658,10 @@ namespace SharpDSP2._1
             get { return noise_filter.NoiseFilterAdaptiveFilterSize; }
 			set
 			{
+                ReceiverMutex.WaitOne();
                 noise_filter.NoiseFilterAdaptiveFilterSize = value;
-			}
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
         public float NoiseFilterAdaptationRate
@@ -529,7 +669,9 @@ namespace SharpDSP2._1
             get { return noise_filter.NoiseFilterAdaptationRate; }
             set
             {
+                ReceiverMutex.WaitOne();
                 noise_filter.NoiseFilterAdaptationRate = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
@@ -539,9 +681,11 @@ namespace SharpDSP2._1
 			get { return osc_freq; }
 			set
 			{
-				osc_freq = value;
+                ReceiverMutex.WaitOne();
+                osc_freq = value;
 				local_osc.LOFrequency = value;
-			}
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private int iq_gain_value = 1;
@@ -550,8 +694,10 @@ namespace SharpDSP2._1
 			get { return iq_gain_value; }
 			set
 			{
-				iq_gain_value = value;
-			}
+                ReceiverMutex.WaitOne();
+                iq_gain_value = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private int iq_phase_value = 0;
@@ -560,8 +706,10 @@ namespace SharpDSP2._1
 			get { return iq_phase_value; }
 			set
 			{
-				iq_phase_value = value;
-			}
+                ReceiverMutex.WaitOne();
+                iq_phase_value = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 				
 		private float samplerate = 48000F;
@@ -570,8 +718,12 @@ namespace SharpDSP2._1
 			get { return samplerate; }
 			set
 			{
-				samplerate = value;
-			}
+                ReceiverMutex.WaitOne();
+                samplerate = value;
+                rxbuffer.State.DSPSampleRate = samplerate;
+                agc.setSample_rate((int)samplerate);
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 								
 		private WindowType_e window_type = WindowType_e.BLACKMANHARRIS_WINDOW;
@@ -580,8 +732,10 @@ namespace SharpDSP2._1
 			get { return window_type; }
 			set
 			{
-				window_type = value;
-			}
+                ReceiverMutex.WaitOne();
+                window_type = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 		
 		private bool binaural_mode_value = false;
@@ -590,9 +744,11 @@ namespace SharpDSP2._1
 			get { return binaural_mode_value; }
 			set
 			{
-				binaural_mode_value = value;
+                ReceiverMutex.WaitOne();
+                binaural_mode_value = value;
                 output_mode.BinAuralMode = value;
-			}
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 
@@ -604,9 +760,11 @@ namespace SharpDSP2._1
 			get { return block_size; }
 			set
 			{
-				block_size = value;
+                ReceiverMutex.WaitOne();
+                block_size = value;
 				fft_size = block_size * 2;
-			}
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private int fft_size = 4096;
@@ -615,8 +773,10 @@ namespace SharpDSP2._1
 			get { return fft_size; }
 			set
 			{
-				fft_size = value;				
-			}
+                ReceiverMutex.WaitOne();
+                fft_size = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private float rx_volume_l = 0.25F;
@@ -625,9 +785,11 @@ namespace SharpDSP2._1
 			get { return rx_volume_l; }
 			set
 			{
-				rx_volume_l = value;
+                ReceiverMutex.WaitOne();
+                rx_volume_l = value;
                 output_mode.VolumeLeft = value;
-			}
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private float rx_volume_r = 0.25F;
@@ -636,9 +798,11 @@ namespace SharpDSP2._1
 			get { return rx_volume_r; }
 			set
 			{
-				rx_volume_r = value;
+                ReceiverMutex.WaitOne();
+                rx_volume_r = value;
                 output_mode.VolumeRight = value;
-			}
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 		
         //private Mode current_mode = DSPMode_e.AM;
@@ -661,22 +825,32 @@ namespace SharpDSP2._1
 			get { return current_window; }
 			set
 			{
-				current_window = value;				
-			}
+                ReceiverMutex.WaitOne();
+                current_window = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private int rx_display_low = 100;
 		public int RXDisplayLow
 		{
 			get { return rx_display_low; }
-			set { rx_display_low = value; }
+			set {
+                ReceiverMutex.WaitOne();
+                rx_display_low = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private int rx_display_high = 2800;
 		public int RXDisplayHigh
 		{
 			get { return rx_display_high; }
-			set { rx_display_high = value; }
+			set {
+                ReceiverMutex.WaitOne();
+                rx_display_high = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 		
         //private int rx_filter_low_cut = 100;
@@ -710,8 +884,10 @@ namespace SharpDSP2._1
 			get { return current_dds_freq; }
 			set
 			{
-				current_dds_freq = value;
-			}
+                ReceiverMutex.WaitOne();
+                current_dds_freq = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private float am_pll_freq = 0F;         // is likewise 0.0F in PLL.cs
@@ -720,8 +896,10 @@ namespace SharpDSP2._1
 			get { return am_pll_freq; }
 			set
 			{
-				am_pll_freq = value;
-			}
+                ReceiverMutex.WaitOne();
+                am_pll_freq = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private float am_pll_lo_limit = -500F;  // is -1000F in PLL.cs
@@ -730,8 +908,10 @@ namespace SharpDSP2._1
 			get { return am_pll_lo_limit; }
 			set
 			{
-				am_pll_lo_limit = value;
-			}
+                ReceiverMutex.WaitOne();
+                am_pll_lo_limit = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private float am_pll_hi_limit = 500F;   // is +1000F in PLL.cs
@@ -740,8 +920,10 @@ namespace SharpDSP2._1
 			get { return am_pll_hi_limit; }
 			set
 			{
-				am_pll_hi_limit = value;
-			}
+                ReceiverMutex.WaitOne();
+                am_pll_hi_limit = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private float am_pll_bandwidth = 400F;  // is 500F in PLL.cs
@@ -750,26 +932,32 @@ namespace SharpDSP2._1
 			get { return am_pll_bandwidth; }
 			set
 			{
-				am_pll_bandwidth = value;
-			}
+                ReceiverMutex.WaitOne();
+                am_pll_bandwidth = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
         // set synchronous AM parameters as the PLL object's parameters
         public void SetSAMMode()
         {
+            ReceiverMutex.WaitOne();
             pll.PLLBandwidth = AMPLLBandwidth;
             pll.PLLHighLimit = AMPLLHighLimit;
             pll.PLLLowLimit = AMPLLLowLimit;
             pll.PLLFrequency = AMPLLFrequency;
+            ReceiverMutex.ReleaseMutex();
         }
 
         // set FM parameters as the PLL object's parameters
         public void SetFMMode()
         {
+            ReceiverMutex.WaitOne();
             pll.PLLBandwidth = FMPLLBandwidth;
             pll.PLLHighLimit = FMPLLHighLimit;
             pll.PLLLowLimit = FMPLLLowLimit;
             pll.PLLFrequency = FMPLLFrequency;
+            ReceiverMutex.ReleaseMutex();
         }
 
         private float fm_pll_freq = 0F;
@@ -778,8 +966,10 @@ namespace SharpDSP2._1
 			get { return fm_pll_freq; }
 			set
 			{
-				fm_pll_freq = value;
-			}
+                ReceiverMutex.WaitOne();
+                fm_pll_freq = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private float fm_pll_lo_limit = -6000F;
@@ -788,8 +978,10 @@ namespace SharpDSP2._1
 			get { return fm_pll_lo_limit; }
 			set
 			{
-				fm_pll_lo_limit = value;
-			}
+                ReceiverMutex.WaitOne();
+                fm_pll_lo_limit = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private float fm_pll_hi_limit = 6000F;
@@ -798,8 +990,10 @@ namespace SharpDSP2._1
 			get { return fm_pll_hi_limit; }
 			set
 			{
-				fm_pll_hi_limit = value;
-			}
+                ReceiverMutex.WaitOne();
+                fm_pll_hi_limit = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
 		private float fm_pll_bandwidth = 10000F;
@@ -808,8 +1002,10 @@ namespace SharpDSP2._1
 			get { return fm_pll_bandwidth; }
 			set
 			{
-				fm_pll_bandwidth = value;
-			}
+                ReceiverMutex.WaitOne();
+                fm_pll_bandwidth = value;
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
 
         //private RXType rx_type = RXType.MainRX;
@@ -824,16 +1020,20 @@ namespace SharpDSP2._1
 			get { return rx_route; }
 			set
 			{
-				rx_route = value;
+                ReceiverMutex.WaitOne();
+                rx_route = value;
                 output_mode.RXOutputRoute = value;
-			}
+                ReceiverMutex.ReleaseMutex();
+            }
 		}
         public bool PowerSpectrumOn
         {
             get { return power_spectrum.SpectrumSwitchOn; }
             set
             {
+                ReceiverMutex.WaitOne();
                 power_spectrum.SpectrumSwitchOn = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
@@ -842,7 +1042,9 @@ namespace SharpDSP2._1
             get { return power_spectrum.UpdatesPerSecond; }
             set
             {
+                ReceiverMutex.WaitOne();
                 power_spectrum.UpdatesPerSecond = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
@@ -851,20 +1053,30 @@ namespace SharpDSP2._1
             get { return power_spectrum.PowerSpectrumAveragingOn; }
             set
             {
+                ReceiverMutex.WaitOne();
                 power_spectrum.PowerSpectrumAveragingOn = value;
+                ReceiverMutex.ReleaseMutex();
             }
         }
 
         public float PowerSpectrumSmoothingFactor
         {
             get { return power_spectrum.PowerSpectrumSmoothingFactor; }
-            set { power_spectrum.PowerSpectrumSmoothingFactor = value; }
+            set {
+                ReceiverMutex.WaitOne();
+                power_spectrum.PowerSpectrumSmoothingFactor = value;
+                ReceiverMutex.ReleaseMutex();
+            }
         }
 
         public float PowerSpectrumCorrection
         {
             get { return power_spectrum.PowerSpectrumCorrection; }
-            set { power_spectrum.PowerSpectrumCorrection = value; }
+            set {
+                ReceiverMutex.WaitOne();
+                power_spectrum.PowerSpectrumCorrection = value;
+                ReceiverMutex.ReleaseMutex();
+            }
         }
 
         public PowerSpectrumSignal DSPPowerSpectrumObj

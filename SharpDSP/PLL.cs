@@ -236,7 +236,7 @@ namespace SharpDSP2._1
 
                 pll_internal_state.alpha = 0.3F * pllbandwidthnorm; pll_internal_state.beta =
                     pll_internal_state.alpha * pll_internal_state.alpha * 0.25F;
-                pll_internal_state.cvt = 0.45F * s.DSPSampleRate / (float)(Math.PI * pllbandwidth);
+                pll_internal_state.cvt = 2.0F * s.DSPSampleRate / (float)(Math.PI * pllbandwidth);// was 0.45F, increase volume.
             }
         }
 

@@ -57,25 +57,29 @@ namespace SharpDSP2._1
 		
 		[DllImport(library_name,
 		EntryPoint = "fftwf_destroy_plan",
-		ExactSpelling = true),
-		System.Security.SuppressUnmanagedCodeSecurity]
+        ExactSpelling = true,
+        CallingConvention = CallingConvention.Cdecl),
+        System.Security.SuppressUnmanagedCodeSecurity]
 		internal static extern void destroy_plan(IntPtr plan);
 		
 		[DllImport(library_name,
 		EntryPoint = "fftwf_cleanup",
-		ExactSpelling = true),
-		System.Security.SuppressUnmanagedCodeSecurity]
+        ExactSpelling = true,
+        CallingConvention = CallingConvention.Cdecl),
+        System.Security.SuppressUnmanagedCodeSecurity]
 		internal static extern void cleanup();
 		
 		[DllImport(library_name,
 		EntryPoint = "fftwf_execute",
-		ExactSpelling = true),
-		System.Security.SuppressUnmanagedCodeSecurity]
+        ExactSpelling = true,
+        CallingConvention = CallingConvention.Cdecl),
+        System.Security.SuppressUnmanagedCodeSecurity]
 		internal static extern void execute(IntPtr plan);
 		
 		[DllImport(library_name,
 		EntryPoint = "fftwf_plan_dft_1d",
-		ExactSpelling = true),
+        ExactSpelling = true,
+        CallingConvention = CallingConvention.Cdecl),
 		System.Security.SuppressUnmanagedCodeSecurity]
 		internal static extern IntPtr dft_1d(int n, IntPtr input, IntPtr output, 
 		fftw_direction direction, fftw_flags flags);

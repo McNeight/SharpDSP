@@ -75,8 +75,13 @@ namespace SharpDSP2._1
         #endregion
         		        
         #region Constructor
-        
-		public OutbandPowerSpectrumSignal(ref DSPBuffer dsp_buffer_obj)
+
+        public OutbandPowerSpectrumSignal(ref DSPBuffer dsp_buffer_obj)
+            : this(ref dsp_buffer_obj, WindowType_e.HAMMING_WINDOW)
+        {
+        }
+
+		public OutbandPowerSpectrumSignal(ref DSPBuffer dsp_buffer_obj, WindowType_e filterType)
 		{
             this.d = dsp_buffer_obj;
             this.s = d.State;
@@ -87,8 +92,8 @@ namespace SharpDSP2._1
             this.ps_results = new float[s.DSPBlockSize * 2];
             this.ps_average = new float[s.DSPBlockSize * 2];
             this.filt_design = new FilterDesigner();
-            
-			filt_design.makewindow(WindowType_e.HAMMING_WINDOW,
+
+            filt_design.makewindow(filterType,
                                    s.DSPBlockSize, 
             	                   ref window);
 
@@ -106,8 +111,12 @@ namespace SharpDSP2._1
 			                          FFTW.fftw_flags.Measure);
 		}
 
-        public OutbandPowerSpectrumSignal(int nsize)
-        {            
+        public OutbandPowerSpectrumSignal(int nsize) : this(nsize, WindowType_e.BLACKMANHARRIS_WINDOW)
+        {
+        }
+
+        public OutbandPowerSpectrumSignal(int nsize, WindowType_e filter)
+        {
             this.block_size = nsize;
 
             this.window = new float[nsize];
@@ -115,7 +124,7 @@ namespace SharpDSP2._1
             this.ps_average = new float[nsize * 2];
             this.filt_design = new FilterDesigner();
 
-            filt_design.makewindow(WindowType_e.BLACKMANHARRIS_WINDOW,
+            filt_design.makewindow(filter,
                                    nsize,
                                    ref window);
 
