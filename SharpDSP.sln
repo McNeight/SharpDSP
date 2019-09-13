@@ -1,29 +1,18 @@
-<<<<<<< HEAD
-
-Microsoft Visual Studio Solution File, Format Version 10.00
-# Visual C# Express 2008
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharpDSP", "SharpDSP\SharpDSP.csproj", "{F27304FD-1398-488C-BDA7-680E1F7558A0}"
-EndProject
-Global
-	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		Debug|Any CPU = Debug|Any CPU
-		Release|Any CPU = Release|Any CPU
-	EndGlobalSection
-	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{F27304FD-1398-488C-BDA7-680E1F7558A0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{F27304FD-1398-488C-BDA7-680E1F7558A0}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{F27304FD-1398-488C-BDA7-680E1F7558A0}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{F27304FD-1398-488C-BDA7-680E1F7558A0}.Release|Any CPU.Build.0 = Release|Any CPU
-	EndGlobalSection
-	GlobalSection(SolutionProperties) = preSolution
-		HideSolutionNode = FALSE
-	EndGlobalSection
-EndGlobal
-=======
 ﻿
-Microsoft Visual Studio Solution File, Format Version 10.00
-# Visual C# Express 2008
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharpDSP", "SharpDSP\SharpDSP.csproj", "{F27304FD-1398-488C-BDA7-680E1F7558A0}"
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29230.47
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SharpDSP", "src\SharpDSP.csproj", "{1A6DABC4-3975-409B-925E-FC5F779C41D1}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{2DB0F1C6-66BD-4D9F-B4D8-E3C3841087B7}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		.gitignore = .gitignore
+		LICENSE = LICENSE
+		README.md = README.md
+		stylecop.json = stylecop.json
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -31,13 +20,15 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{F27304FD-1398-488C-BDA7-680E1F7558A0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{F27304FD-1398-488C-BDA7-680E1F7558A0}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{F27304FD-1398-488C-BDA7-680E1F7558A0}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{F27304FD-1398-488C-BDA7-680E1F7558A0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1A6DABC4-3975-409B-925E-FC5F779C41D1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1A6DABC4-3975-409B-925E-FC5F779C41D1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1A6DABC4-3975-409B-925E-FC5F779C41D1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1A6DABC4-3975-409B-925E-FC5F779C41D1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {0C84A696-53FF-404E-9BE5-8BA9182683B9}
+	EndGlobalSection
 EndGlobal
->>>>>>> 0862978... rename to remove spaces, the BANE of URLs everywhere
